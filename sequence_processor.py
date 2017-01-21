@@ -37,7 +37,10 @@ class Scheduler:
         def wrapper(self):
             curr = str(self)
             current_cost = self.cost()            
-            f(self)
+            if not f(self):
+                # action was a no-op
+                return None
+            
             new_cost = self.cost()
             return current_cost - new_cost
         return wrapper
@@ -80,7 +83,7 @@ class Scheduler:
         # vertex weight and add it. If there is no such child,
         # do nothing.
         if len(self.clusters[-1]) == 0:
-            return
+            return None
         
         last = self.clusters[-1][-1]
         eligible = set(self.__eligible()) & set(self.dag.children_of(last))
@@ -89,9 +92,10 @@ class Scheduler:
                         default=None)
 
         if min_child == None:
-            return
+            return None
 
         self.__add(min_child)
+        return True
 
     @__complex_action
     def highest_edge_weight_child(self):
@@ -99,7 +103,7 @@ class Scheduler:
         # vertex weight and add it. If there is no such child,
         # do nothing.
         if len(self.clusters[-1]) == 0:
-            return
+            return None
         
         last = self.clusters[-1][-1]
         eligible = set(self.__eligible()) & set(self.dag.children_of(last))
@@ -109,9 +113,10 @@ class Scheduler:
                         default=None)
 
         if max_child == None:
-            return
+            return None
 
         self.__add(max_child)
+        return True
 
     @__complex_action
     def least_slack(self):
@@ -119,6 +124,7 @@ class Scheduler:
         slack = self.dag.slack(self.deadline)
         v = min(self.__eligible(), key=lambda x: slack[x])
         self.__add(v)
+        return True
         
     @__complex_action
     def most_slack(self):
@@ -126,6 +132,7 @@ class Scheduler:
         slack = self.dag.slack(self.deadline)
         v = max(self.__eligible(), key=lambda x: slack[x])
         self.__add(v)
+        return True
 
     @__complex_action        
     def highest_vertex_weight(self):
@@ -133,6 +140,7 @@ class Scheduler:
         v = max(self.__eligible(),
                 key=lambda x: self.dag.vertex_weight(x, self.cluster_types[-1]))
         self.__add(v)
+        return True
         
     @__complex_action
     def lowest_vertex_weight(self):
@@ -140,16 +148,20 @@ class Scheduler:
         v = max(self.__eligible(),
                 key=lambda x: self.dag.vertex_weight(x, self.cluster_types[-1]))
         self.__add(v)
+        return True
 
     @__complex_action
     def promote(self):
-        self.cluster_types[-1] = min(self.cluster_types[-1] + 1, self.n_types-1)
+        if self.cluster_types[-1] == self.n_types - 1:
+            return None
+        self.cluster_types[-1] = self.cluster_types[-1] + 1
+        return True
 
     def split(self):
         """ creates a new cluster assuming that the last cluster has
         at least one vertex assigned to it (if not, does nothing) """
         if len(self.clusters[-1]) == 0:
-            return 0
+            return None
         
         self.clusters.append([])
         self.cluster_types.append(0)
@@ -158,6 +170,9 @@ class Scheduler:
     def cost(self):
         return self.dag.cost_of(self.clusters, self.cluster_types, self.deadline)
 
+    def latency(self):
+        return self.dag.latency_of(self.clusters, self.cluster_types);
+    
     def default_cost(self):
         return self.dag.cost_of([], [], self.deadline)
     

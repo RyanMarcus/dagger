@@ -22,7 +22,7 @@ from graph import DAG, dag_from_file
 from sequence_processor import Scheduler
 from keras.models import Sequential
 from keras.layers import Dense, Activation
-
+import pickle
 import random
 
 
@@ -38,11 +38,33 @@ def get_scheduler(dag, deadline):
     return Scheduler(dag, deadline, 2)
 
 
-DEADLINE = 1000
+DEADLINE = 5000
 dag = load_dag()
-#print("Default latency:", dag.latency_of([list(range(dag.num_vertices()))], [1]))
-#exit(0)
+all_on_one = [
+    dag.cost_of([list(range(dag.num_vertices()))], [0], DEADLINE),
+    dag.latency_of([list(range(dag.num_vertices()))], [0])
+]
+
+all_alone = [
+    dag.cost_of([], [0], DEADLINE),
+    dag.latency_of([], [])
+]
+print("all on one cost, latency:\t", all_on_one)
+print("all alone cost, latency:\t", all_alone)
+
 sched = get_scheduler(dag, DEADLINE)
+
+while not sched.is_done():
+    if sched.highest_edge_weight_child() == None:
+        sched.split()
+        sched.least_slack()
+
+print("simple heur cost, latency:\t", [sched.cost(), sched.latency()])
+
+simple_heuristic_cost = sched.cost()
+sched.reset()
+
+
 model = Sequential()
 total_inputs = sched.state_vector().shape[0]
 total_outputs = len(sched.actions())
@@ -139,26 +161,40 @@ def do_dqn_iteration():
     reward = None
     
     while not sched.is_done():
+        reward = None
         # with probability EPSILON, move randomly
         if random.random() < EPSILON:
-            action = random.choice(range(total_outputs))
+            while reward == None:
+                action = random.choice(range(total_outputs))
+                reward = sched.actions()[action]()
         else:
-            # select the action that maximizes Q
-            Q = model.predict(np.array([sched.state_vector()]))
-            action = np.argmax(Q[0])
+            # select the action that maximizes Q and has an effect
+            Q = model.predict(np.array([sched.state_vector()]))[0]
+            possible_actions = sorted(range(len(sched.actions())),
+                                      key=lambda x: Q[x],
+                                      reverse=True)
+            for candidate in possible_actions:
+                reward = sched.actions()[candidate]()
+                action = candidate
+                if reward != None:
+                    break
 
-        reward = sched.actions()[action]()
         new_state = sched.state_vector()
         yield (last_state, action, reward, new_state, sched.is_done())
         last_state = new_state
-    print("Final cost:", sched.cost())
+    print(sched)
+    print("Final cost:", sched.cost(),
+          "(latency:", sched.latency(), "),",
+          "% of heuristic:", 100*(sched.cost() / simple_heuristic_cost))
 
 
 for i in range(1000):
     for exp in do_dqn_iteration():
         experience.append(exp)
         train_on_minibatch()
-
+        
+    model.save("dqn_keras.h5")
+        
     print("Iteration", i, "complete, now have", len(experience), "experiences")
 
 

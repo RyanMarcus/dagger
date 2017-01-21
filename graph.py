@@ -117,9 +117,14 @@ class DAG:
                     # I should be resolved!
                         
                     # my start time will be the latest end time of my
-                    # parents                        
-                    nxt["start"] = max((p["end"] for p in parents(nxt)),
-                                       default=0)
+                    # parents or the latest end time on my cluster,
+                    # whichever is greater
+                    latest_parent = max((p["end"] for p in parents(nxt)),
+                                        default=0)
+                    latest_cluster = max((p["end"] for p in cluster
+                                          if p["end"] != None),
+                                         default=0)
+                    nxt["start"] = max(latest_parent, latest_cluster)
 
                     # my end time will be my vertex weight for this machine
                     # type...
@@ -135,6 +140,7 @@ class DAG:
 
                     outgoing_weights = (e[1] for e in outgoing_edges)
                     max_outgoing = max(outgoing_weights, default=0)
+                    #max_outgoing = 0
                     nxt["end"] += max_outgoing
 
                     # set resolved one to true so the while loop continues
@@ -154,7 +160,7 @@ class DAG:
         machine_types = np.array(machine_types)
         latency = self.latency_of(clusters, machine_types)
 
-        penalty = 0 if latency < deadline else (latency - deadline) * 5
+        penalty = 0 if latency < deadline else (latency - deadline) * 10
 
         resolved = self.__resolve(clusters, machine_types)
         totals = np.array([0 for _ in self.machine_costs])
@@ -271,7 +277,7 @@ if __name__ == "__main__":
 
     d = DAG(w, adj, (1, 5))
     
-    #print(d.cost_of([(0, 1), (2, 3)], (1, 0), 100))
+    print(d.cost_of([(0, 1), (2, 3)], (1, 0), 100))
     print(d.t_levels())
     print(d.b_levels(20))
     print(d.slack(20))
