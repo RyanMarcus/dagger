@@ -96,7 +96,8 @@ def generate_random_data(sched):
 
 # build the net
 model.add(Dense(total_inputs * 2, input_dim=total_inputs))
-#model.add(Dense(total_inputs * 2))
+model.add(Dense(total_inputs * 2))
+model.add(Dense(total_inputs * 2))
 model.add(Dense(total_outputs, activation="relu"))
 model.add(Activation("softmax"))
 
