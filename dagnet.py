@@ -121,7 +121,8 @@ print("Gathered", len(experience), "random experiences")
 GAMMA = 0.5
 EPSILON = 0.05
 def train_on_minibatch():
-    batch = random.choices(experience, k=32)
+    #with python3.6: batch = random.choices(experience, k=32)
+    batch = [random.choice(experience) for x in range(32)]
 
     # first, evaluate the output vectors for the initial state
     initial_states = np.array([x[0] for x in batch])
