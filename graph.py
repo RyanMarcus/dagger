@@ -76,9 +76,20 @@ class DAG:
                 yield i
     
     def __resolve(self, clusters, cluster_types):
+        # add any vertex that isn't given in cluster as a singleton on
+        # a small VM.
+        clusters = list(clusters)
+        cluster_types = list(cluster_types)
+        unadded = set(range(self.num_vertices())) - set(flatten(clusters))
+        for v in unadded:
+            clusters.append([v])
+            cluster_types.append(0)
+                      
+        
         clusters = [[{"start": None, "end": None, "vertex": v, "type": mt}
                      for v in x]
-                    for x, mt in zip(clusters, cluster_types)]
+                    for x, mt in zip(clusters, cluster_types)
+                    if len(x) != 0]
         
         vertices = { x["vertex"]: x for x in flatten(clusters) }
         
@@ -145,17 +156,24 @@ class DAG:
 
         penalty = 0 if latency < deadline else (latency - deadline) * 5
 
-        # create tuples that are (runtime, machine_type) pairs
         resolved = self.__resolve(clusters, machine_types)
         totals = np.array([0 for _ in self.machine_costs])
-
+        machines = np.array([0 for _ in self.machine_costs])
+        
         for cluster in resolved:
             mt = cluster[-1]["type"]
             time = cluster[-1]["end"]
             totals[mt] += time
+            machines[mt] += 1
 
+        # check for empty machines
+        for clst, mt in zip(clusters, machine_types):
+            if clst == []:
+                machines[mt] += 1
+            
         runtime_cost = sum(totals * self.machine_costs)
-        startup_cost = sum(self.machine_costs[machine_types] * 60)
+        startup_cost = sum(machines * self.machine_costs * 60)
+        
         return runtime_cost + startup_cost + penalty
             
     def t_levels(self, clusters=[], cluster_types=[]):

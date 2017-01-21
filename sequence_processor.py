@@ -21,7 +21,6 @@ from graph import DAG
 import numpy as np
 from collections import defaultdict
 
-
 class Scheduler:
     def __init__(self, dag, deadline, num_machine_types):
         self.dag = dag
@@ -32,6 +31,16 @@ class Scheduler:
         for i in range(self.dag.num_vertices()):
             for mt in range(self.n_types):
                 self.__vertex_weight_info.append(self.dag.vertex_weight(i, mt))
+
+
+    def __complex_action(f):
+        def wrapper(self):
+            curr = str(self)
+            current_cost = self.cost()            
+            f(self)
+            new_cost = self.cost()
+            return current_cost - new_cost
+        return wrapper
         
     def __eligible(self):
         # find all the vertices in self.not_done whose
@@ -65,6 +74,7 @@ class Scheduler:
                 self.promote]
                 
 
+    @__complex_action
     def lowest_vertex_weight_child(self):
         # find the child of the last added vertex with the lowest
         # vertex weight and add it. If there is no such child,
@@ -83,6 +93,7 @@ class Scheduler:
 
         self.__add(min_child)
 
+    @__complex_action
     def highest_edge_weight_child(self):
         # find the child of the last added vertex with the lowest
         # vertex weight and add it. If there is no such child,
@@ -102,46 +113,54 @@ class Scheduler:
 
         self.__add(max_child)
 
+    @__complex_action
     def least_slack(self):
         """ find the child with the least slack and add it """
         slack = self.dag.slack(self.deadline)
         v = min(self.__eligible(), key=lambda x: slack[x])
         self.__add(v)
-
+        
+    @__complex_action
     def most_slack(self):
         """ find the child with the most slack and add it """
         slack = self.dag.slack(self.deadline)
         v = max(self.__eligible(), key=lambda x: slack[x])
         self.__add(v)
-        
+
+    @__complex_action        
     def highest_vertex_weight(self):
         # find the vertex with the highest weight and add it
         v = max(self.__eligible(),
                 key=lambda x: self.dag.vertex_weight(x, self.cluster_types[-1]))
         self.__add(v)
         
-
+    @__complex_action
     def lowest_vertex_weight(self):
         # find the vertex with the lowest weight and add it
         v = max(self.__eligible(),
                 key=lambda x: self.dag.vertex_weight(x, self.cluster_types[-1]))
         self.__add(v)
 
+    @__complex_action
     def promote(self):
         self.cluster_types[-1] = min(self.cluster_types[-1] + 1, self.n_types-1)
-        
+
     def split(self):
         """ creates a new cluster assuming that the last cluster has
         at least one vertex assigned to it (if not, does nothing) """
         if len(self.clusters[-1]) == 0:
-            return
+            return 0
         
         self.clusters.append([])
         self.cluster_types.append(0)
+        return - self.dag.machine_costs[0] * 60
 
     def cost(self):
         return self.dag.cost_of(self.clusters, self.cluster_types, self.deadline)
 
+    def default_cost(self):
+        return self.dag.cost_of([], [], self.deadline)
+    
     def is_done(self):
         return len(self.not_done) == 0
 
@@ -172,21 +191,18 @@ class Scheduler:
         return np.array(vec)
                     
     def __repr__(self):
-        return str(self.clusters)
+        return str(self.clusters) + ", " + str(self.cluster_types)
 
 
 if __name__ == "__main__":
-    adj = np.array([[-1, 1, 2, -1], [-1, -1, -1, 5],
-                    [-1, -1, -1, 3], [-1, -1, -1, -1]])
-    w = np.array([[3, 2], [4, 1], [1, 1], [8, 7]])
+    adj = np.array([[-1, 10, 20, -1], [-1, -1, -1, 50],
+                    [-1, -1, -1, 30], [-1, -1, -1, -1]])
+    w = np.array([[30, 20], [40, 10], [10, 10], [80, 70]])
 
     d = DAG(w, adj, (1, 5))
     
     s = Scheduler(d, 20, 2)
-    s.least_slack()
-    s.split()
-    s.promote()
-    s.least_slack()
-    s.least_slack()
-
-    print(s)
+    actions = [s.split, s.least_slack, s.least_slack, s.split, s.least_slack]
+    actions = [x() for x in actions]
+    print(actions, sum(actions))
+    print("default:", s.default_cost(), "final:", s.cost())
