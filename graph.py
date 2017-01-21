@@ -19,16 +19,36 @@
 # < end copyright > 
 import numpy as np
 from collections import defaultdict
+from functools import lru_cache
 
 def flatten(l):
     return (item for sublist in l for item in sublist)
 
+def dag_from_file(from_file):
+    weights = []
+    adj_matrix = []
+    with open(from_file, "r") as f:
+        num_vertices = int(next(f).strip())
+        for i in range(num_vertices):
+            l = next(f)
+            weights.append([int(x) for x in l.strip().split(",")])
+
+        for l in f:
+            adj_matrix.append([int(x) for x in l.strip().split(",")])
+
+    return DAG(weights, adj_matrix, [1, 5])
+
+
 class DAG:
     def __init__(self, weights, adj_matrix, machine_costs):
-        self.weights = weights
-        self.adj_matrix = adj_matrix
+        self.weights =np.array(weights)
+        self.adj_matrix = np.array(adj_matrix)
         self.machine_costs = np.array(machine_costs)
+        self.parents = dict()
+        for i in range(self.num_vertices()):
+            self.parents[i] = list(self.__find_parents(i))
 
+        
     def get_root(self):
         return 0
     
@@ -42,12 +62,15 @@ class DAG:
         return self.weights[a][machine_type]
 
     def children_of(self, a):
-        return np.where(self.adj_matrix[a] > 0)[0]
+        return np.where(self.adj_matrix[a] > -1)[0]
 
     def sinks(self):
-        return np.where(~self.adj_matrix.any(axis=1))[0]
+        return np.where(np.all(self.adj_matrix == -1, axis=1))[0]
 
     def parents_of(self, a):
+        return self.parents[a]
+    
+    def __find_parents(self, a):
         for i in range(self.weights.shape[0]):
             if a in self.children_of(i):
                 yield i
@@ -162,7 +185,8 @@ class DAG:
         """ returns a map from each vertex to its b-level (the latest
         possible starting time for a vertex so that the deadline can still
         be met) """
-        
+
+        sinks = list(self.sinks())
         vertex_to_mt = defaultdict(lambda: 0)
         vertex_to_cluster = defaultdict(list)
         for cluster, mt in zip(clusters, cluster_types):
@@ -171,7 +195,7 @@ class DAG:
                 vertex_to_cluster[vertex] = cluster
 
         # we need a reverse topological ordering of the DAG
-        rtopo = list(self.sinks())
+        rtopo = list(sinks)
         remaining = set(range(self.num_vertices()))
         remaining -= set(rtopo)
 
@@ -179,12 +203,12 @@ class DAG:
             # add every vertex v from remaining for which:
             # all of v's children are already in rtopo
             added = False
-            for v in remaining:
-                if set(self.children_of(v)).issubset(set(rtopo)):
-                    added = True
-                    rtopo.append(v)
-                    remaining.remove(v)
-                    break
+            srtopo = set(rtopo)
+            match = list(v for v in remaining
+                         if set(self.children_of(v)).issubset(srtopo))
+            added = len(match) != 0
+            rtopo.extend(match)
+            remaining -= set(match)
                 
             if not added:
                 raise ValueError("Backedge found when building rtopo list")
@@ -196,11 +220,11 @@ class DAG:
         # to the child if not in same cluster) - weight
 
         toR = dict()
-        for sink in self.sinks():
+        for sink in sinks:
             toR[sink] = deadline - self.vertex_weight(sink,
                                                       vertex_to_mt[sink])
 
-        rtopo = rtopo[len(self.sinks()):] # cut out the sinks, already have
+        rtopo = rtopo[len(sinks):] # cut out the sinks, already have
         for v in rtopo:
             max_child = max(toR[c] + (0 if c in vertex_to_cluster[v]
                                       else self.edge_weight(v, c))
@@ -223,7 +247,8 @@ class DAG:
                     
 
 if __name__ == "__main__":
-    adj = np.array([[0, 1, 2, 0], [0, 0, 0, 5], [0, 0, 0, 3], [0, 0, 0, 0]])
+    adj = np.array([[-1, 1, 2, -1], [-1, -1, -1, 5],
+                    [-1, -1, -1, 3], [-1, -1, -1, -1]])
     w = np.array([[3, 2], [4, 1], [1, 1], [8, 7]])
 
     d = DAG(w, adj, (1, 5))
@@ -232,3 +257,6 @@ if __name__ == "__main__":
     print(d.t_levels())
     print(d.b_levels(20))
     print(d.slack(20))
+
+    d = dag_from_file("sparselu1.txt")
+    #print(d.slack(2000))

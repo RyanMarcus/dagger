@@ -28,6 +28,10 @@ class Scheduler:
         self.n_types = num_machine_types
         self.deadline = deadline
         self.reset()
+        self.__vertex_weight_info = []
+        for i in range(self.dag.num_vertices()):
+            for mt in range(self.n_types):
+                self.__vertex_weight_info.append(self.dag.vertex_weight(i, mt))
         
     def __eligible(self):
         # find all the vertices in self.not_done whose
@@ -147,21 +151,20 @@ class Scheduler:
         vec_to_mt = defaultdict(lambda: 0)
         for cluster, mt in zip(self.clusters, self.cluster_types):
             for vertex in cluster:
-                vec_to_cluster[vertex] = cluster
+                vec_to_cluster[vertex] = np.array(cluster)
                 vec_to_mt[vertex] = mt
         
         
         vec = []
         for i in range(self.dag.num_vertices()):
-            for j in range(i+1,self.dag.num_vertices()):
-                if i in vec_to_cluster[j]:
-                    vec.append(0)
-                else:
-                    vec.append(self.dag.edge_weight(i, j))
+            cluster = vec_to_cluster[i]
+            edge_sum = np.array(self.dag.adj_matrix[i])
+            edge_sum[cluster] = 0
+            edge_sum[edge_sum == -1] = 0
+            edge_sum = np.sum(edge_sum)
+            vec.append(edge_sum)
 
-        for i in range(self.dag.num_vertices()):
-            for mt in range(self.n_types):
-                vec.append(self.dag.vertex_weight(i, mt))
+        vec.extend(self.__vertex_weight_info)
 
         for i in range(self.dag.num_vertices()):
             vec.append(vec_to_mt[i])
@@ -173,10 +176,12 @@ class Scheduler:
 
 
 if __name__ == "__main__":
-    adj = np.array([[0, 1, 2, 0], [0, 0, 0, 5], [0, 0, 0, 3], [0, 0, 0, 0]])
+    adj = np.array([[-1, 1, 2, -1], [-1, -1, -1, 5],
+                    [-1, -1, -1, 3], [-1, -1, -1, -1]])
     w = np.array([[3, 2], [4, 1], [1, 1], [8, 7]])
 
     d = DAG(w, adj, (1, 5))
+    
     s = Scheduler(d, 20, 2)
     s.least_slack()
     s.split()
