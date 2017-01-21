@@ -102,8 +102,8 @@ model.add(Activation("softmax"))
 
 model.compile("RMSprop", "mse")
 
-from keras.utils.visualize_util import plot
-plot(model, to_file='model.png')
+#from keras.utils.visualize_util import plot
+#plot(model, to_file='model.png')
 
 
 # first, generate some random data to get us going
