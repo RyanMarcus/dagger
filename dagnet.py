@@ -24,6 +24,7 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation
 import pickle
 import random
+from keras.models import load_model
 
 
 def load_dag():
@@ -61,7 +62,7 @@ while not sched.is_done():
 
 print("simple heur cost, latency:\t", [sched.cost(), sched.latency()])
 
-simple_heuristic_cost = sched.cost()
+simple_heuristic_cost = min(sched.cost(), all_on_one[0], all_alone[0])
 sched.reset()
 
 
@@ -95,13 +96,13 @@ def generate_random_data(sched):
 
 
 # build the net
-model.add(Dense(total_inputs * 2, input_dim=total_inputs))
-model.add(Dense(total_inputs * 2))
-model.add(Dense(total_inputs * 2))
-model.add(Dense(total_outputs, activation="relu"))
-model.add(Activation("softmax"))
+#model.add(Dense(total_inputs * 2, input_dim=total_inputs))
+#model.add(Dense(total_inputs * 2, activation="relu"))
+#model.add(Dense(total_inputs * 2, activation="relu"))
+#model.add(Dense(total_outputs))
+#model.compile("RMSprop", "mse")
 
-model.compile("RMSprop", "mse")
+model = load_model("dqn_keras.h5")
 
 #from keras.utils.visualize_util import plot
 #plot(model, to_file='model.png')
@@ -119,8 +120,8 @@ for i in range(NUM_RAND_EXPERIENCES):
 
 print("Gathered", len(experience), "random experiences")
 
-GAMMA = 0.5
-EPSILON = 0.05
+GAMMA = 0.8
+EPSILON = 1.0
 def train_on_minibatch():
     #with python3.6: batch = random.choices(experience, k=32)
     batch = [random.choice(experience) for x in range(32)]
@@ -155,7 +156,10 @@ if NUM_RAND_EXPERIENCES != 0:
         train_on_minibatch()
 
 print("Trained the network on some random experiences")
-    
+
+compare = []
+mcompare = []
+
 def do_dqn_iteration():
     sched.reset()
     last_state = sched.state_vector()
@@ -172,6 +176,7 @@ def do_dqn_iteration():
         else:
             # select the action that maximizes Q and has an effect
             Q = model.predict(np.array([sched.state_vector()]))[0]
+            #print(Q)
             possible_actions = sorted(range(len(sched.actions())),
                                       key=lambda x: Q[x],
                                       reverse=True)
@@ -186,17 +191,30 @@ def do_dqn_iteration():
         last_state = new_state
     print(sched)
     print("Final cost:", sched.cost(),
-          "(latency:", sched.latency(), "),",
+          "( latency:", sched.latency(), "),",
           "% of heuristic:", 100*(sched.cost() / simple_heuristic_cost))
+    compare.append(sched.cost() / simple_heuristic_cost)
+    mcompare.append(min(mcompare[-1] if len(mcompare) != 0 else 1000, compare[-1]))
+
+import matplotlib.pyplot as plt
+plt.ion()
+plt.ylim([0, 15])
 
 
 for i in range(1000):
     for exp in do_dqn_iteration():
+        EPSILON = EPSILON*0.9999
         experience.append(exp)
         train_on_minibatch()
-        
+
+    plt.plot(compare, 'b')
+    plt.plot([1 for _ in compare], 'r')
+    plt.plot(mcompare, 'g')
+    plt.draw()
+    plt.pause(0.01)
     model.save("dqn_keras.h5")
         
     print("Iteration", i, "complete, now have", len(experience), "experiences")
+    print("Epsilon =", EPSILON)
 
 

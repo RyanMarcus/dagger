@@ -188,8 +188,26 @@ class Scheduler:
                 vec_to_cluster[vertex] = np.array(cluster)
                 vec_to_mt[vertex] = mt
         
-        
         vec = []
+        
+        # give the current communication / computation ratio for the current
+        # cluster (the most recent one)
+        comp = 0.0
+        comm = 0.0
+        for node in self.clusters[-1]:
+            # get this node's total computation time on this cluster
+            comp += self.dag.vertex_weight(node, self.cluster_types[-1])
+
+            # get the sum of the outgoing edges for this node
+            edge_sum = np.array(self.dag.adj_matrix[node])
+            edge_sum[self.clusters[-1]] = 0
+            edge_sum[edge_sum == -1] = 0
+            edge_sum = np.sum(edge_sum)
+            comm += edge_sum
+
+        vec.append((comm / comp) if comp != 0 else 0)
+                
+        # EDGE WEIGHT SUMS ------------------------------
         for i in range(self.dag.num_vertices()):
             cluster = vec_to_cluster[i]
             edge_sum = np.array(self.dag.adj_matrix[i])
@@ -197,9 +215,13 @@ class Scheduler:
             edge_sum[edge_sum == -1] = 0
             edge_sum = np.sum(edge_sum)
             vec.append(edge_sum)
+        # -----------------------------------------------
 
-        vec.extend(self.__vertex_weight_info)
-
+        #vec.extend(self.__vertex_weight_info)
+        vec.extend(self.dag.slack(self.deadline,
+                                  clusters=self.clusters,
+                                  cluster_types=self.cluster_types))
+        
         for i in range(self.dag.num_vertices()):
             vec.append(vec_to_mt[i])
                 
