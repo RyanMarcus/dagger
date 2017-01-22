@@ -39,7 +39,7 @@ def get_scheduler(dag, deadline):
     return Scheduler(dag, deadline, 2)
 
 
-DEADLINE = 5000
+DEADLINE = 3000
 dag = load_dag()
 all_on_one = [
     dag.cost_of([list(range(dag.num_vertices()))], [0], DEADLINE),
@@ -96,13 +96,13 @@ def generate_random_data(sched):
 
 
 # build the net
-#model.add(Dense(total_inputs * 2, input_dim=total_inputs))
-#model.add(Dense(total_inputs * 2, activation="relu"))
-#model.add(Dense(total_inputs * 2, activation="relu"))
-#model.add(Dense(total_outputs))
-#model.compile("RMSprop", "mse")
+model.add(Dense(total_inputs * 2, input_dim=total_inputs))
+model.add(Dense(total_inputs * 2, activation="relu"))
+model.add(Dense(total_inputs * 2, activation="relu"))
+model.add(Dense(total_outputs))
+model.compile("RMSprop", "mse")
 
-model = load_model("dqn_keras.h5")
+#model = load_model("dqn_keras.h5")
 
 #from keras.utils.visualize_util import plot
 #plot(model, to_file='model.png')
@@ -120,30 +120,24 @@ for i in range(NUM_RAND_EXPERIENCES):
 
 print("Gathered", len(experience), "random experiences")
 
-GAMMA = 0.8
-EPSILON = 1.0
-def train_on_minibatch():
+#GAMMA = 0.8
+#EPSILON = 1.0
+def train_on_minibatch(data=None):
     #with python3.6: batch = random.choices(experience, k=32)
-    batch = [random.choice(experience) for x in range(32)]
+    batch = data
+    if data == None:
+        batch = [random.choice(experience) for x in range(32)]
 
     # first, evaluate the output vectors for the initial state
     initial_states = np.array([x[0] for x in batch])
-    next_states = np.array([x[3] for x in batch])
     current_Q = model.predict(initial_states)
-    next_Q = model.predict(next_states)
 
     x = []
     y = []
-    for exp, currQ, nxtQ in zip(batch, current_Q, next_Q):
+    for exp, currQ in zip(batch, current_Q):
         x.append(np.array(exp[0]))
         newQ = np.array(currQ)
-        if not exp[4]:
-            # not a terminal reward.
-            newQ[exp[1]] = exp[2] + GAMMA * max(nxtQ)
-        else:
-            # terminal reward
-            newQ[exp[1]] = exp[2]
-
+        newQ[exp[1]] = exp[2]
         y.append(newQ)
 
     model.train_on_batch(np.array(x), np.array(y))
@@ -160,52 +154,59 @@ print("Trained the network on some random experiences")
 compare = []
 mcompare = []
 
+def select_index(prob):
+    v = random.random()
+    for idx, p in enumerate(prob):
+        v -= p
+        if v <= 0.0:
+            return idx
+    return len(prob) - 1
+
 def do_dqn_iteration():
     sched.reset()
-    last_state = sched.state_vector()
-    action = None
-    reward = None
+    actions = []
+    states = []
     
     while not sched.is_done():
-        reward = None
-        # with probability EPSILON, move randomly
-        if random.random() < EPSILON:
-            while reward == None:
-                action = random.choice(range(total_outputs))
-                reward = sched.actions()[action]()
-        else:
-            # select the action that maximizes Q and has an effect
-            Q = model.predict(np.array([sched.state_vector()]))[0]
-            #print(Q)
-            possible_actions = sorted(range(len(sched.actions())),
-                                      key=lambda x: Q[x],
-                                      reverse=True)
-            for candidate in possible_actions:
-                reward = sched.actions()[candidate]()
-                action = candidate
-                if reward != None:
-                    break
+        # treat the NN as our policy and move as it directs
+        Q = model.predict(np.array([sched.state_vector()]))[0]
+        Q = 1.0/Q
+        Q[Q < 0.0] = 1.0
+        Q /= sum(Q)
 
-        new_state = sched.state_vector()
-        yield (last_state, action, reward, new_state, sched.is_done())
-        last_state = new_state
+
+        while True:
+            action = select_index(Q)
+            if sched.actions()[action]() != None:
+                break
+
+        actions.append(action)
+        states.append(sched.state_vector())
+        
+    # now we are done. Compute the actual reward / cost
+    reward = sched.cost()
+    
     print(sched)
-    print("Final cost:", sched.cost(),
+    print("Final cost:", reward,
           "( latency:", sched.latency(), "),",
           "% of heuristic:", 100*(sched.cost() / simple_heuristic_cost))
     compare.append(sched.cost() / simple_heuristic_cost)
     mcompare.append(min(mcompare[-1] if len(mcompare) != 0 else 1000, compare[-1]))
 
+    # create new training points
+    for action, state in zip(actions, states):
+        yield (state, action, reward)
+
 import matplotlib.pyplot as plt
 plt.ion()
-plt.ylim([0, 15])
+plt.ylim([0, 8])
 
 
 for i in range(1000):
-    for exp in do_dqn_iteration():
-        EPSILON = EPSILON*0.9999
-        experience.append(exp)
-        train_on_minibatch()
+    d = list(do_dqn_iteration())
+    #for exp in do_dqn_iteration():
+    #    experience.append(exp)
+    train_on_minibatch(data=d)
 
     plt.plot(compare, 'b')
     plt.plot([1 for _ in compare], 'r')
@@ -215,6 +216,6 @@ for i in range(1000):
     model.save("dqn_keras.h5")
         
     print("Iteration", i, "complete, now have", len(experience), "experiences")
-    print("Epsilon =", EPSILON)
+
 
 
