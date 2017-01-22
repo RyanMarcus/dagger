@@ -120,7 +120,7 @@ for i in range(NUM_RAND_EXPERIENCES):
 
 print("Gathered", len(experience), "random experiences")
 
-#GAMMA = 0.8
+GAMMA = 0.8
 #EPSILON = 1.0
 def train_on_minibatch(data=None):
     #with python3.6: batch = random.choices(experience, k=32)
@@ -166,36 +166,47 @@ def do_dqn_iteration():
     sched.reset()
     actions = []
     states = []
+    rewards = []
+    
+    # randomly pick between the leading N policies
+    policy_idx = random.randint(0, 0)
     
     while not sched.is_done():
         # treat the NN as our policy and move as it directs
         Q = model.predict(np.array([sched.state_vector()]))[0]
-        Q = 1.0/Q
-        Q[Q < 0.0] = 1.0
-        Q /= sum(Q)
+        possible_actions = sorted(range(len(sched.actions())),
+                                  key=lambda x: Q[x],
+                                  reverse=True)
 
+        # "cycle" the list to put our picked policy first
+        for i in range(policy_idx):
+            possible_actions.append(possible_actions.pop(0))
 
-        while True:
-            action = select_index(Q)
-            if sched.actions()[action]() != None:
+        action = None
+        for proposed in possible_actions:
+            r = sched.actions()[proposed]()
+            if r != None:
+                rewards.append(r)
+                action = proposed
                 break
-
+            
         actions.append(action)
         states.append(sched.state_vector())
         
-    # now we are done. Compute the actual reward / cost
-    reward = sched.cost()
-    
-    print(sched)
-    print("Final cost:", reward,
+    print(actions)
+    print("Final cost:", sched.cost(),
           "( latency:", sched.latency(), "),",
+          "played policy:", policy_idx,
           "% of heuristic:", 100*(sched.cost() / simple_heuristic_cost))
     compare.append(sched.cost() / simple_heuristic_cost)
     mcompare.append(min(mcompare[-1] if len(mcompare) != 0 else 1000, compare[-1]))
 
     # create new training points
-    for action, state in zip(actions, states):
-        yield (state, action, reward)
+    for i in range(len(actions)):
+        a = actions[i]
+        s = states[i]
+        r = rewards[i] + GAMMA * sum(rewards[i:])
+        yield (s, a, r)
 
 import matplotlib.pyplot as plt
 plt.ion()
