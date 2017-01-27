@@ -90,8 +90,13 @@ class DAG:
                      for v in x]
                     for x, mt in zip(clusters, cluster_types)
                     if len(x) != 0]
-        
+
         vertices = { x["vertex"]: x for x in flatten(clusters) }
+        vertex_to_cluster = dict()
+
+        for cluster in clusters:
+            for vertex in cluster:
+                vertex_to_cluster[vertex["vertex"]] = cluster
         
         def is_resolved(x):
             return x["start"] != None
@@ -99,57 +104,57 @@ class DAG:
         def parents(x):
             for p in self.parents_of(x["vertex"]):
                 yield vertices[p]
-        
-        while any(not is_resolved(x) for x in flatten(clusters)):
-            # try and resolve the next task on each cluster
-            resolved_one = False
-            for cluster, mt in zip(clusters, cluster_types):
-                # find the first unresolved vertex, if it exists
-                nxt = None
-                try:
-                    nxt = next(x for x in cluster if not is_resolved(x))
-                except StopIteration:
-                    continue # no unresolved vertices left on this one
+
+        # going in topological order (the arbitrary one we already have),
+        # resolve the tasks.
+        clusters_in_topo_order = []
+        for i in range(self.num_vertices()):
+            clusters_in_topo_order.append(vertex_to_cluster[i])
                 
-                # see if all of this vertex's parents are resolved
-                if all(is_resolved(p) for p in parents(nxt)):
-                    # all my parents are resolved, which means
-                    # I should be resolved!
-                        
-                    # my start time will be the latest end time of my
-                    # parents or the latest end time on my cluster,
-                    # whichever is greater
-                    latest_parent = max((p["end"] for p in parents(nxt)),
-                                        default=0)
-                    latest_cluster = max((p["end"] for p in cluster
-                                          if p["end"] != None),
-                                         default=0)
-                    nxt["start"] = max(latest_parent, latest_cluster)
-
-                    # my end time will be my vertex weight for this machine
-                    # type...
-                    nxt["end"] = nxt["start"] + self.vertex_weight(nxt["vertex"], mt)
-
-                    # ... plus my largest outgoing edge to a vertex that
-                    # is not in my cluster
-                    outgoing_edges = ((x, self.edge_weight(nxt["vertex"], x))
-                                      for x in self.children_of(nxt["vertex"]))
-
-                    outgoing_edges = (e for e in outgoing_edges
-                                      if e[0] not in [x["vertex"] for x in cluster])
-
-                    outgoing_weights = (e[1] for e in outgoing_edges)
-                    max_outgoing = max(outgoing_weights, default=0)
-                    #max_outgoing = 0
-                    nxt["end"] += max_outgoing
-
-                    # set resolved one to true so the while loop continues
-                    resolved_one = True
-                        
-            if not resolved_one:
-                # we couldn't resolve the schedule. must be a back edge.
-                raise ValueError("Clusters could not be resolved, verify that schedule is valid")
-
+        for cluster in clusters_in_topo_order:
+            # try and resolve the next task on this cluster
+            # find the first unresolved vertex, if it exists
+            nxt = None
+            try:
+                nxt = next(x for x in cluster if not is_resolved(x))
+            except StopIteration:
+                # no unresolved vertices left on this one, but there should have been!
+                raise ValueError("Not a valid clustering, not enough vertices in cluster: " + str(cluster))
+                
+            # see if all of this vertex's parents are resolved
+            if not all(is_resolved(p) for p in parents(nxt)):
+                raise ValueError(f'Invalid cluster ordering, {p} not resolved before {nxt}!')
+            
+            # all my parents are resolved, which means
+            # I should be resolved!
+            
+            # my start time will be the latest end time of my
+            # parents or the latest end time on my cluster,
+            # whichever is greater
+            latest_parent = max((p["end"] for p in parents(nxt)),
+                                default=0)
+            latest_cluster = max((p["end"] for p in cluster
+                                  if p["end"] != None),
+                                 default=0)
+            nxt["start"] = max(latest_parent, latest_cluster)
+            
+            # my end time will be my vertex weight for this machine
+            # type...
+            nxt["end"] = nxt["start"] + self.vertex_weight(nxt["vertex"], nxt["type"])
+            
+            # ... plus my largest outgoing edge to a vertex that
+            # is not in my cluster
+            outgoing_edges = ((x, self.edge_weight(nxt["vertex"], x))
+                              for x in self.children_of(nxt["vertex"]))
+            
+            outgoing_edges = (e for e in outgoing_edges
+                              if e[0] not in [x["vertex"] for x in cluster])
+            
+            outgoing_weights = (e[1] for e in outgoing_edges)
+            max_outgoing = max(outgoing_weights, default=0)
+            nxt["end"] += max_outgoing
+            
+        print(clusters)
         return clusters
 
     def latency_of(self, clusters, machine_types):
@@ -277,10 +282,7 @@ if __name__ == "__main__":
 
     d = DAG(w, adj, (1, 5))
     
-    print(d.cost_of([(0, 1), (2, 3)], (1, 0), 100))
-    print(d.t_levels())
-    print(d.b_levels(20))
-    print(d.slack(20))
+    print(d.latency_of([(0, 1), (2, 3)], (0, 0)))
 
     d = dag_from_file("sparselu1.txt")
     #print(d.slack(2000))
